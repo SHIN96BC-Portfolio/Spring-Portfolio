@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProductPriceChanged",
+  "description": "SKU 가격 변경 후 발행. notification·recommendation 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "ProductPriceChanged" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["productId", "variantId", "newPrice"],
+      "properties": {
+        "productId": { "type": "integer" },
+        "variantId": { "type": "integer" },
+        "newPrice": { "type": "integer", "minimum": 0 },
+        "previousPrice": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

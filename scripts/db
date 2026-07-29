@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Usage: db up | db down | db reset | db help
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+CMD="${1:-}"
+
+show_help() {
+  cat <<'EOF'
+db — 로컬 개발용 DB 컨테이너 관리
+
+Usage:
+  db up       Postgres + Mongo + Kafka/Redis 인프라 기동
+  db down     컨테이너 중지 (볼륨·데이터 유지)
+  db reset    컨테이너 중지 후 볼륨 삭제, 재기동 (V1 스키마 재적용)
+  db help     이 도움말
+
+Examples:
+  ./db up
+  ./db down
+  ./db reset
+
+Notes:
+  - V1__init.sql / V1__init_mongodb.js 변경 후에는 db reset 필요
+  - docker compose V2, Docker Desktop 필요
+EOF
+}
+
+case "$CMD" in
+  up|down|reset) ;;
+  help|-h|--help|"")
+    show_help
+    [[ -z "$CMD" ]] && exit 1 || exit 0
+    ;;
+  *)
+    echo "Unknown command: $CMD" >&2
+    echo "Run 'db help' for usage." >&2
+    exit 1
+    ;;
+esac
+
+use_windows() {
+  if command -v pwsh >/dev/null 2>&1; then
+    exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$DIR/windows/$CMD.ps1" "${@:2}"
+  fi
+  if command -v powershell >/dev/null 2>&1; then
+    exec powershell -NoProfile -ExecutionPolicy Bypass -File "$DIR/windows/$CMD.ps1" "${@:2}"
+  fi
+  echo "PowerShell not found (pwsh or powershell required on Windows)." >&2
+  exit 1
+}
+
+# Windows native (CMD, PowerShell, Git Bash on Windows)
+if [[ "${OS:-}" == "Windows_NT" ]]; then
+  use_windows
+fi
+
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32*)
+    use_windows
+    ;;
+esac
+
+exec "$DIR/unix/$CMD.sh" "${@:2}"

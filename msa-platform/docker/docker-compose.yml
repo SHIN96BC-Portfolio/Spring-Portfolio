@@ -1,0 +1,140 @@
+version: '3.9'
+
+# ===================================================================
+# msa-platform - 모든 서비스의 DB 인스턴스
+# 
+# 사전 조건: msa-infra의 docker-compose 먼저 실행 (msa-network 필요)
+# 
+# 이 docker-compose는 DB만 띄웁니다.
+# 서비스 자체는 IntelliJ 또는 개별 실행.
+#
+# V1 스키마: 각 Postgres/Mongo 볼륨 최초 생성 시
+#   docker-entrypoint-initdb.d 에 마운트된 V1__init.sql / V1__init_mongodb.js 가 자동 실행됩니다.
+# 한 번에 기동: scripts 폴더에서 ./db up
+# 스키마 초기화: ./db reset
+# ===================================================================
+
+services:
+  # ========== PostgreSQL × 8 ==========
+  postgres-user:
+    image: postgres:16-alpine
+    container_name: msa-postgres-user
+    environment: { POSTGRES_DB: userdb, POSTGRES_USER: userapp, POSTGRES_PASSWORD: userpw }
+    ports: ["5433:5432"]
+    volumes:
+      - postgres-user-data:/var/lib/postgresql/data
+      # 최초 볼륨 생성 시 V1 스키마 자동 적용 (볼륨 재생성: scripts/db reset)
+      - ../services/user-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-commerce:
+    image: postgres:16-alpine
+    container_name: msa-postgres-commerce
+    environment: { POSTGRES_DB: commercedb, POSTGRES_USER: commerce, POSTGRES_PASSWORD: commercepw }
+    ports: ["5434:5432"]
+    volumes:
+      - postgres-commerce-data:/var/lib/postgresql/data
+      - ../services/commerce-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-point:
+    image: postgres:16-alpine
+    container_name: msa-postgres-point
+    environment: { POSTGRES_DB: pointdb, POSTGRES_USER: pointapp, POSTGRES_PASSWORD: pointpw }
+    ports: ["5435:5432"]
+    volumes:
+      - postgres-point-data:/var/lib/postgresql/data
+      - ../services/point-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-fashion:
+    image: postgres:16-alpine
+    container_name: msa-postgres-fashion
+    environment: { POSTGRES_DB: fashiondb, POSTGRES_USER: fashion, POSTGRES_PASSWORD: fashionpw }
+    ports: ["5436:5432"]
+    volumes:
+      - postgres-fashion-data:/var/lib/postgresql/data
+      - ../services/fashion-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-social:
+    image: postgres:16-alpine
+    container_name: msa-postgres-social
+    environment: { POSTGRES_DB: socialdb, POSTGRES_USER: social, POSTGRES_PASSWORD: socialpw }
+    ports: ["5437:5432"]
+    volumes:
+      - postgres-social-data:/var/lib/postgresql/data
+      - ../services/social-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-recommendation:
+    image: postgres:16-alpine
+    container_name: msa-postgres-recommendation
+    environment: { POSTGRES_DB: recommendationdb, POSTGRES_USER: recommendation, POSTGRES_PASSWORD: recopw }
+    ports: ["5438:5432"]
+    volumes:
+      - postgres-recommendation-data:/var/lib/postgresql/data
+      - ../services/recommendation-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-notification:
+    image: postgres:16-alpine
+    container_name: msa-postgres-notification
+    environment: { POSTGRES_DB: notificationdb, POSTGRES_USER: notification, POSTGRES_PASSWORD: notifpw }
+    ports: ["5439:5432"]
+    volumes:
+      - postgres-notification-data:/var/lib/postgresql/data
+      - ../services/notification-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-media:
+    image: postgres:16-alpine
+    container_name: msa-postgres-media
+    environment: { POSTGRES_DB: mediadb, POSTGRES_USER: media, POSTGRES_PASSWORD: mediapw }
+    ports: ["5440:5432"]
+    volumes:
+      - postgres-media-data:/var/lib/postgresql/data
+      - ../services/media-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  postgres-content:
+    image: postgres:16-alpine
+    container_name: msa-postgres-content
+    environment: { POSTGRES_DB: contentdb, POSTGRES_USER: content, POSTGRES_PASSWORD: contentpw }
+    ports: ["5441:5432"]
+    volumes:
+      - postgres-content-data:/var/lib/postgresql/data
+      - ../services/content-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks: [msa-network]
+
+  # ========== MongoDB (activity-feed) ==========
+  mongodb-activity:
+    image: mongo:7
+    container_name: msa-mongodb-activity
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: activity
+      MONGO_INITDB_ROOT_PASSWORD: activitypw
+      MONGO_INITDB_DATABASE: activitydb
+    ports: ["27017:27017"]
+    volumes:
+      - mongodb-data:/data/db
+      # 최초 DB 생성 시 activities validator/index/TTL 적용
+      - ../services/activity-feed-service/src/main/resources/db/migration/V1__init_mongodb.js:/docker-entrypoint-initdb.d/01-init-activity.js:ro
+    networks: [msa-network]
+
+volumes:
+  postgres-user-data:
+  postgres-commerce-data:
+  postgres-point-data:
+  postgres-fashion-data:
+  postgres-social-data:
+  postgres-recommendation-data:
+  postgres-notification-data:
+  postgres-media-data:
+  postgres-content-data:
+  mongodb-data:
+
+networks:
+  msa-network:
+    external: true
+    name: msa-network

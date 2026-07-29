@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderPaid",
+  "description": "결제 CAPTURED 후 발행. point·notification·recommendation·activity-feed 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "OrderPaid" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["orderId", "userId", "finalAmount", "paidAt"],
+      "properties": {
+        "orderId": { "type": "integer" },
+        "userId": { "type": "string", "format": "uuid" },
+        "finalAmount": { "type": "integer", "minimum": 0 },
+        "paidAt": { "type": "string", "format": "date-time" },
+        "paymentId": { "type": "integer", "description": "payment.id (CAPTURED attempt)" },
+        "pointUsed": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

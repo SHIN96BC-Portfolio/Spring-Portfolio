@@ -1,0 +1,69 @@
+openapi: 3.0.3
+info:
+  title: msa-auth API
+  version: "1.0"
+  description: Identity Provider API
+
+servers:
+  - url: http://localhost:8083
+    description: Local
+
+paths:
+  /api/auth/signup:
+    post:
+      summary: 회원가입
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request (validation)
+        '409':
+          description: Email already exists
+
+  /api/auth/login:
+    post:
+      summary: 로그인
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+                  expiresIn: { type: integer }
+        '401':
+          description: Invalid credentials
+
+  /actuator/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK

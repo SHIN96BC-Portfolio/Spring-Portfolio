@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "RepurchaseTimingPredicted",
+  "description": "재구매 예측 시각 산출 후 발행. notification 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "RepurchaseTimingPredicted" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["userId", "productId", "predictedNextPurchaseAt"],
+      "properties": {
+        "userId": { "type": "string", "format": "uuid" },
+        "productId": { "type": "integer" },
+        "predictedNextPurchaseAt": { "type": "string", "format": "date-time" },
+        "confidenceScore": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

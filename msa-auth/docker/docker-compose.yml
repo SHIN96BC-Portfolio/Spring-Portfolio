@@ -1,0 +1,38 @@
+version: '3.9'
+
+# ===================================================================
+# msa-auth - postgres-auth
+#
+# 사전 조건: msa-infra의 docker-compose를 먼저 실행하세요.
+# (msa-network 필요)
+# ===================================================================
+
+services:
+  postgres-auth:
+    image: postgres:16-alpine
+    container_name: msa-postgres-auth
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: authpw
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+      # 최초 볼륨 생성 시 V1 스키마 자동 적용 (scripts/db reset)
+      - ../auth-service/src/main/resources/db/migration/V1__init.sql:/docker-entrypoint-initdb.d/01-v1-init.sql:ro
+    networks:
+      - msa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth -d authdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres-auth-data:
+
+networks:
+  msa-network:
+    external: true
+    name: msa-network

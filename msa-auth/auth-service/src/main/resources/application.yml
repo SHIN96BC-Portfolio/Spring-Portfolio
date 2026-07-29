@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: auth-service
+  profiles:
+    active: local
+  
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:authdb}
+    username: ${DB_USER:auth}
+    password: ${DB_PASSWORD:authpw}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+  
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
+  
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+  
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true
+
+server:
+  port: 8083
+
+msa:
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-in-production-must-be-at-least-256-bits-long-000000}
+    access-expiry-seconds: 3600
+    refresh-expiry-seconds: 2592000
+  outbox:
+    enabled: true
+    polling-interval: 1000
+    batch-size: 100
+    topic-prefix: auth
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always

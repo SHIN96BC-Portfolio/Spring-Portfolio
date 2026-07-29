@@ -1,0 +1,4 @@
+logging:
+  level:
+    com.msaplatform.userservice: DEBUG
+    org.springframework.kafka: INFO

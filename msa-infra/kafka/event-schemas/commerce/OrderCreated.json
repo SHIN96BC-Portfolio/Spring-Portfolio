@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OrderCreated",
+  "description": "주문 헤더·라인 생성 후 발행. activity-feed 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "OrderCreated" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["orderId", "userId", "finalAmount", "status"],
+      "properties": {
+        "orderId": { "type": "integer", "description": "orders.id" },
+        "userId": { "type": "string", "format": "uuid" },
+        "finalAmount": { "type": "integer", "minimum": 0 },
+        "status": { "type": "string", "enum": ["PENDING", "PAID", "SHIPPED", "COMPLETED", "CANCELLED"] },
+        "itemCount": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

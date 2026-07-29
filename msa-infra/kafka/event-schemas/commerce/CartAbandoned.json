@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CartAbandoned",
+  "description": "장바구니 이탈 감지 후 발행. notification(마케팅) 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "CartAbandoned" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["userId", "abandonedAt"],
+      "properties": {
+        "userId": { "type": "string", "format": "uuid" },
+        "abandonedAt": { "type": "string", "format": "date-time" },
+        "itemCount": { "type": "integer", "minimum": 1 },
+        "cartTotalAmount": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

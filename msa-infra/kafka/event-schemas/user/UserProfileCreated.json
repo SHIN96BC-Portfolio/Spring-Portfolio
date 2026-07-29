@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserProfileCreated",
+  "description": "user-service가 공개 프로필 행을 생성한 뒤 발행. activity-feed 등이 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "UserProfileCreated" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["accountId", "profileId", "nickname"],
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "auth.account.id 논리 참조"
+        },
+        "profileId": {
+          "type": "integer",
+          "description": "user_profile.id (내부 BIGINT PK)"
+        },
+        "nickname": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "표시 닉네임 (가입 직후 임시 닉네임 포함, USER-01)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

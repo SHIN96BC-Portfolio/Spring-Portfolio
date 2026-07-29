@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Validate branch name: type/scope/name/#issueNo
+# Allows protected/trunk branches: main
+set -euo pipefail
+
+# Empty repo / no commits yet
+if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+  exit 0
+fi
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+# Detached HEAD (e.g. CI checkout by SHA)
+if [[ "${branch}" == "HEAD" ]]; then
+  exit 0
+fi
+
+# Trunk / allowed long-lived branches
+case "${branch}" in
+  main) exit 0 ;;
+esac
+
+TYPES='feat|hotfix|docs|style|refactor|chore|build|deploy|revert|test'
+PATTERN="^(${TYPES})/[a-z0-9-]+/[a-z0-9-]+/#[0-9]+$"
+
+if [[ ! "${branch}" =~ ${PATTERN} ]]; then
+  cat >&2 <<EOF
+pre-push: invalid branch name.
+
+  got:  ${branch}
+  want: type/scope/name/#issueNo
+
+  type : feat|hotfix|docs|style|refactor|chore|build|deploy|revert|test
+  scope: auth-service, user-service, infra, platform-libs, ...
+  name : your name/id (lowercase, digits, hyphen)
+
+  examples:
+    feat/auth-service/john/#123
+    hotfix/user-service/john/#200
+    deploy/infra/john/#125
+
+  allowed without pattern: main
+
+EOF
+  exit 1
+fi
+
+exit 0

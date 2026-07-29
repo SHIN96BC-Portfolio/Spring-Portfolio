@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserFollowed",
+  "description": "follow_relation INSERT 후 발행. notification·recommendation·activity-feed 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "UserFollowed" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["followerAccountId", "followeeAccountId"],
+      "properties": {
+        "followerAccountId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "팔로우한 사용자 auth.account.id"
+        },
+        "followeeAccountId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "팔로우 대상 auth.account.id"
+        },
+        "followerProfileId": {
+          "type": "integer",
+          "description": "선택: user_profile.id (follower)"
+        },
+        "followeeProfileId": {
+          "type": "integer",
+          "description": "선택: user_profile.id (followee)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

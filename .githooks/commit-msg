@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Validate commit message: [type/scope/name] subject
+set -euo pipefail
+
+MSG_FILE="${1:-}"
+if [[ -z "${MSG_FILE}" || ! -f "${MSG_FILE}" ]]; then
+  echo "commit-msg: missing commit message file" >&2
+  exit 1
+fi
+
+# Skip merge / revert auto messages
+first_line="$(sed -n '1p' "${MSG_FILE}" | tr -d '\r')"
+if [[ "${first_line}" =~ ^Merge[[:space:]] ]] || [[ "${first_line}" =~ ^Revert[[:space:]] ]]; then
+  exit 0
+fi
+
+# Skip empty / comment-only first line (git will reject empty commits anyway)
+if [[ -z "${first_line}" || "${first_line}" =~ ^# ]]; then
+  exit 0
+fi
+
+TYPES='feat|hotfix|docs|style|refactor|chore|build|deploy|revert|test'
+PATTERN="^\[(${TYPES})/[a-z0-9-]+/[a-z0-9-]+\] .+"
+
+if [[ ! "${first_line}" =~ ${PATTERN} ]]; then
+  cat >&2 <<EOF
+commit-msg: invalid commit message format.
+
+  got:  ${first_line}
+  want: [type/scope/name] subject
+
+  type : feat|hotfix|docs|style|refactor|chore|build|deploy|revert|test
+  scope: auth-service, user-service, infra, platform-libs, ...
+  name : your name/id (lowercase, digits, hyphen)
+
+  example:
+    [feat/auth-service/john] JWT refresh 만료 처리
+
+EOF
+  exit 1
+fi
+
+exit 0

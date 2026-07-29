@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PointEarned",
+  "description": "point-service가 EARNED 원장 반영 후 발행. activity-feed 구독.",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "PointEarned" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["accountId", "amount", "sourceType", "sourceId"],
+      "properties": {
+        "accountId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "point_account.user_id = auth.account.id"
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "적립 포인트 (최소 화폐 단위)"
+        },
+        "sourceType": {
+          "type": "string",
+          "description": "point_transaction.source_type (예: ORDER, SIGNUP_BONUS)"
+        },
+        "sourceId": {
+          "type": "string",
+          "description": "point_transaction.source_id (멱등 키 일부)"
+        },
+        "balanceAfter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "적립 후 가용 잔액 (선택, 피드 요약용)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

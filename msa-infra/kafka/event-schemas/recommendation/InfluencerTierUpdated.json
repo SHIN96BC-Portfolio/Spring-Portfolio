@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "InfluencerTierUpdated",
+  "description": "influencer_metric 재계산 후 발행. user-service가 프로필 스냅샷 동기화 (BOUNDARY-01).",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "InfluencerTierUpdated" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["userId", "tier", "calculatedAt"],
+      "properties": {
+        "userId": { "type": "string", "format": "uuid", "description": "auth.account.id" },
+        "tier": {
+          "type": "string",
+          "enum": ["MICRO", "MID", "MACRO", "MEGA"]
+        },
+        "influenceScore": { "type": "number", "minimum": 0 },
+        "calculatedAt": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

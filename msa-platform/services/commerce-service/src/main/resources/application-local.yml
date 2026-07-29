@@ -1,0 +1,4 @@
+logging:
+  level:
+    com.msaplatform.commerceservice: DEBUG
+    org.springframework.kafka: INFO

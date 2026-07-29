@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AccountSuspended",
+  "description": "계정 정지. user_profile.status / point_account.status 를 SUSPENDED 로 맞추고 활동을 차단한다 (AUTH-04).",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "AccountSuspended" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["accountId"],
+      "properties": {
+        "accountId": { "type": "string", "format": "uuid" },
+        "reason": {
+          "type": ["string", "null"],
+          "description": "정지 사유 코드. 예: ADMIN, ABUSE, CHARGEBACK"
+        }
+      }
+    }
+  }
+}

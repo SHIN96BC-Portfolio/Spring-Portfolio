@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AccountEmailVerified",
+  "description": "계정 이메일 인증 완료. user/point/notification 이 email_verified 미러를 갱신한다 (AUTH-04).",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "AccountEmailVerified" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["accountId", "email"],
+      "properties": {
+        "accountId": { "type": "string", "format": "uuid" },
+        "email": { "type": "string", "format": "email" }
+      }
+    }
+  }
+}

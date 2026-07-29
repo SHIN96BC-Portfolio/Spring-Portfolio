@@ -1,0 +1,4 @@
+logging:
+  level:
+    com.msaplatform.recommendationservice: DEBUG
+    org.springframework.kafka: INFO

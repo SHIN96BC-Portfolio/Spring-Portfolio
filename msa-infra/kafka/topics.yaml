@@ -1,0 +1,76 @@
+# ========================================
+# Kafka Topics Definition
+# ========================================
+# 
+# 이 파일은 참고용입니다. 실제 토픽은 docker-compose의 kafka-init 서비스가 자동 생성합니다.
+# 프로덕션에서는 별도 관리 필요.
+
+topics:
+  # Auth Domain (msa-auth 발행)
+  - name: auth.events
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 604800000  # 7 days
+    partitioning_key: accountId
+
+  # User Domain (msa-platform - user-service 발행)
+  - name: user.events
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 604800000
+    partitioning_key: userId
+
+  # Commerce Domain (msa-platform - commerce-service 발행)
+  - name: commerce.events
+    partitions: 3
+    replication_factor: 1
+    retention_ms: 604800000
+    partitioning_key: userId  # 또는 orderId
+
+  # Fashion Domain
+  - name: fashion.events
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: authorId
+
+  # Social Domain
+  - name: social.events
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: authorId
+
+  # Point Domain
+  - name: point.events
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: userId
+
+  # Recommendation
+  - name: recommendation.events
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: userId
+
+  # Notification
+  - name: notification.events
+    partitions: 3
+    replication_factor: 1
+
+  # Media
+  - name: media.events
+    partitions: 3
+    replication_factor: 1
+
+  # Saga (Orchestrator ↔ Participant)
+  - name: saga.commands
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: sagaId
+
+  - name: saga.replies
+    partitions: 3
+    replication_factor: 1
+    partitioning_key: sagaId
+
+  # Dead Letter Queue (자동 생성)
+  # 각 토픽마다 <topic>.dlq 자동 생성

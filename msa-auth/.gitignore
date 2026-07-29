@@ -1,0 +1,26 @@
+# Build
+build/
+.gradle/
+*.jar
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Environment
+.env
+.env.local
+application-secret.yml
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

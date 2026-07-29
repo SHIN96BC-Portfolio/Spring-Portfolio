@@ -1,0 +1,47 @@
+# Build
+**/build/
+**/.gradle/
+**/*.jar
+!**/gradle-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+**/*.iml
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
+
+# Environment & Secrets
+**/.env
+**/.env.local
+**/application-secret.yml
+**/*.pem
+**/*.key
+**/secrets/
+
+# Docker
+**/.docker/
+
+# Terraform
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/*.tfvars
+!**/*.tfvars.example
+
+# OS
+.DS_Store
+**/Thumbs.db
+
+# Logs
+**/*.log
+**/logs/
+
+# Test / diagnostics
+**/test-results/
+**/*.hprof
+
+# Local data / volumes
+**/data/
+**/volumes/

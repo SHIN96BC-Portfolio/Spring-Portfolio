@@ -1,0 +1,74 @@
+version: '3.9'
+
+# ===================================================================
+# 관찰 가능성 스택 (Tier 1 후반부에 도입)
+# 
+# 사용:
+#   docker-compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+# ===================================================================
+
+services:
+  # ========== Prometheus (메트릭) ==========
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: msa-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - msa-network
+
+  # ========== Grafana (시각화) ==========
+  grafana:
+    image: grafana/grafana:latest
+    container_name: msa-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - msa-network
+
+  # ========== Loki (로그 집계) ==========
+  loki:
+    image: grafana/loki:latest
+    container_name: msa-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    networks:
+      - msa-network
+
+  # ========== Tempo (분산 추적) ==========
+  tempo:
+    image: grafana/tempo:latest
+    container_name: msa-tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+    command: -config.file=/etc/tempo.yaml
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - msa-network
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  loki-data:
+  tempo-data:
+
+networks:
+  msa-network:
+    external: true
+    name: msa-network

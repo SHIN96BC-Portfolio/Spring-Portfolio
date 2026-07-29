@@ -1,0 +1,38 @@
+spring:
+  application:
+    name: activity-feed-service
+  profiles:
+    active: local
+
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://activity:activitypw@localhost:27017/activitydb?authSource=admin}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:localhost:29092}
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      group-id: activity-feed-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+server:
+  port: 8090
+
+msa:
+  auth:
+    jwt-secret: ${AUTH_JWT_SECRET:change-this-secret-in-production-must-be-at-least-256-bits-long-000000}
+    verify-token-url: ${AUTH_VERIFY_URL:http://localhost:8083/internal/verify-token}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always

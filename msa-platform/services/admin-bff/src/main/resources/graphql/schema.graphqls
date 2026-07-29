@@ -1,0 +1,68 @@
+# admin-bff GraphQL Schema
+#
+# 관리자 화면용 API. 각 도메인 서비스(content-service 등)를 조합해 반환한다.
+# DataLoader로 N+1 방지 (연관 조회 추가 시 적용)
+
+type Query {
+    " GNB / 내비게이션 메뉴 트리 "
+    navigationMenus: [NavigationMenu!]!
+
+    " 슬롯별 배너 목록 (slot 미지정 시 전체) "
+    banners(slot: String): [Banner!]!
+
+    " 정적 페이지 목록 (소개, 약관 등) "
+    staticPages: [StaticPage!]!
+
+    " 홈 화면 섹션 구성 "
+    homeSections: [HomeSection!]!
+}
+
+type Mutation {
+    " 배너 등록 "
+    createBanner(input: CreateBannerInput!): Banner!
+
+    " 배너 활성/비활성 "
+    setBannerActive(id: ID!, isActive: Boolean!): Banner!
+}
+
+type NavigationMenu {
+    id: ID!
+    name: String!
+    linkUrl: String
+    displayOrder: Int!
+    isActive: Boolean!
+    children: [NavigationMenu!]!
+}
+
+type Banner {
+    id: ID!
+    slot: String!
+    title: String!
+    imageUrl: String!
+    linkUrl: String
+    displayOrder: Int!
+    isActive: Boolean!
+}
+
+type StaticPage {
+    id: ID!
+    slug: String!
+    title: String!
+    isPublished: Boolean!
+}
+
+type HomeSection {
+    id: ID!
+    sectionType: String!
+    title: String
+    displayOrder: Int!
+    isActive: Boolean!
+}
+
+input CreateBannerInput {
+    slot: String!
+    title: String!
+    imageUrl: String!
+    linkUrl: String
+    displayOrder: Int
+}

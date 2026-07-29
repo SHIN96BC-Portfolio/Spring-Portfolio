@@ -1,0 +1,32 @@
+name: Validate Infrastructure
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-docker-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate docker-compose
+        run: docker compose -f docker/docker-compose.yml config
+
+  validate-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install ajv-cli
+        run: npm install -g ajv-cli
+      - name: Validate JSON schemas
+        run: |
+          find kafka/event-schemas -name "*.json" | while read schema; do
+            echo "Validating $schema"
+            ajv compile -s "$schema"
+          done

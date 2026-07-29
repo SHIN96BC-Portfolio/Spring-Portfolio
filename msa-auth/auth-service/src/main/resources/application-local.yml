@@ -1,0 +1,6 @@
+logging:
+  level:
+    com.msaauth: DEBUG
+    org.springframework.kafka: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql: TRACE

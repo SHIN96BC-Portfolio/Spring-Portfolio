@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AccountRegistered",
+  "description": "새 계정이 등록되었을 때 발행. nickname 은 포함하지 않는다 — 공개 프로필은 user-service 소유이며, 소비 측이 accountId 기반 임시 닉네임(u{uuid32hex})을 생성한다 (USER-01).",
+  "type": "object",
+  "required": ["eventId", "eventType", "eventVersion", "occurredAt", "traceId", "data"],
+  "properties": {
+    "eventId": { "type": "string", "format": "uuid" },
+    "eventType": { "const": "AccountRegistered" },
+    "eventVersion": { "type": "integer", "default": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "traceId": { "type": "string" },
+    "data": {
+      "type": "object",
+      "required": ["accountId", "email", "registeredVia"],
+      "properties": {
+        "accountId": { "type": "string", "format": "uuid" },
+        "email": { "type": "string", "format": "email" },
+        "registeredVia": {
+          "type": "string",
+          "enum": ["EMAIL", "KAKAO", "GOOGLE"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,2 @@
+# Shell scripts: LF on all platforms (WSL/Git Bash on Windows)
+*.sh text eol=lf

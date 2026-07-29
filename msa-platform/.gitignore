@@ -1,0 +1,22 @@
+# Build
+build/
+.gradle/
+*.jar
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Environment
+.env
+.env.local
+application-secret.yml
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+logs/
