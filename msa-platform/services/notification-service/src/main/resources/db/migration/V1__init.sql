@@ -80,10 +80,13 @@ COMMENT ON COLUMN processed_events.consumer_group IS
 
 -- ==============================================================
 -- 1. 알림 템플릿
+-- [NOTIF-03] site_key: FE 앱(사이트) 별 템플릿·인박스·수신설정 분리.
+--   PORTFOLIO | COMMERCE | FASHION | SOCIAL
 -- ==============================================================
 CREATE TABLE notification_template (
     id                  BIGSERIAL PRIMARY KEY,
-    -- 비즈니스 식별자 (notification / campaign 이 참조하는 코드)
+    site_key            VARCHAR(30)  NOT NULL,
+    -- 비즈니스 식별자 (notification / campaign 이 참조하는 코드). site_key 내 UNIQUE
     template_id         VARCHAR(50)  NOT NULL,
     -- EMAIL, WEBHOOK, IN_APP, PUSH
     channel             VARCHAR(20)  NOT NULL,
@@ -96,7 +99,10 @@ CREATE TABLE notification_template (
     active              BOOLEAN      NOT NULL DEFAULT TRUE,
     created_at          TIMESTAMPTZ    NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT uq_notification_template_template_id UNIQUE (template_id),
+    CONSTRAINT uq_notification_template_site_code UNIQUE (site_key, template_id),
+    CONSTRAINT chk_notification_template_site_key CHECK (
+        site_key IN ('PORTFOLIO', 'COMMERCE', 'FASHION', 'SOCIAL')
+    ),
     CONSTRAINT chk_notification_template_channel CHECK (
         channel IN ('EMAIL', 'WEBHOOK', 'IN_APP', 'PUSH')
     ),
@@ -106,8 +112,11 @@ CREATE TABLE notification_template (
     )
 );
 
-COMMENT ON TABLE notification_template IS '채널·카테고리별 알림 본문/제목 템플릿';
-COMMENT ON COLUMN notification_template.template_id IS '템플릿 비즈니스 코드 (unique). notification/marketing_campaign.template_id 가 참조';
+COMMENT ON TABLE notification_template IS '사이트·채널·카테고리별 알림 본문/제목 템플릿';
+COMMENT ON COLUMN notification_template.site_key IS
+    'FE 앱/사이트: PORTFOLIO, COMMERCE, FASHION, SOCIAL (NOTIF-03)';
+COMMENT ON COLUMN notification_template.template_id IS
+    '템플릿 비즈니스 코드. site_key 와 UNIQUE. notification/marketing_campaign 이 참조';
 COMMENT ON COLUMN notification_template.channel IS '발송 채널: EMAIL, WEBHOOK, IN_APP, PUSH';
 COMMENT ON COLUMN notification_template.category IS '알림 카테고리: TRANSACTION, MARKETING, SOCIAL, SYSTEM';
 COMMENT ON COLUMN notification_template.variables IS '템플릿 치환 변수 정의(JSON)';
@@ -123,14 +132,15 @@ COMMENT ON COLUMN notification_template.variables IS '템플릿 치환 변수 �
 --   2) 채널 어댑터로 발송.
 --   3) status=SENT, sent_at 갱신 후 processed_events 기록.
 --   키 형식 (고정, 애플리케이션이 조립):
---     Kafka 기원:  "{sourceEventId}:{channel}:{templateOrNone}:{recipientUserId}"
---     캠페인 기원: "campaign:{campaignId}:{channel}:{templateOrNone}:{recipientUserId}"
+--     Kafka 기원:  "{siteKey}:{sourceEventId}:{channel}:{templateOrNone}:{recipientUserId}"
+--     캠페인 기원: "{siteKey}:campaign:{campaignId}:{channel}:{templateOrNone}:{recipientUserId}"
 --     template_id 가 NULL 이면 구간 값 "NONE" 사용 (키에 NULL 금지).
 -- ==============================================================
 CREATE TABLE notification (
     id                  BIGSERIAL PRIMARY KEY,
     -- [NOTIF-01] 발송 단위 멱등 키. 외부 채널 호출 전에 반드시 INSERT
     idempotency_key     VARCHAR(300) NOT NULL,
+    site_key            VARCHAR(30)  NOT NULL,
     -- 원본 Kafka DomainEvent.eventId (캠페인 스케줄 발송이면 NULL)
     source_event_id     UUID,
     -- 논리 참조: auth.account.id (cross-service FK 금지)
@@ -156,7 +166,11 @@ CREATE TABLE notification (
 
     CONSTRAINT uq_notification_idempotency UNIQUE (idempotency_key),
     CONSTRAINT fk_notification_template
-        FOREIGN KEY (template_id) REFERENCES notification_template (template_id),
+        FOREIGN KEY (site_key, template_id)
+        REFERENCES notification_template (site_key, template_id),
+    CONSTRAINT chk_notification_site_key CHECK (
+        site_key IN ('PORTFOLIO', 'COMMERCE', 'FASHION', 'SOCIAL')
+    ),
     CONSTRAINT chk_notification_channel CHECK (
         channel IN ('EMAIL', 'WEBHOOK', 'IN_APP', 'PUSH')
     ),
@@ -178,26 +192,29 @@ CREATE TABLE notification (
 );
 
 COMMENT ON TABLE notification IS
-    '개별 알림 발송/열람 이력. idempotency_key 로 중복 발송 차단(NOTIF-01)';
+    '개별 알림 발송/열람 이력. site_key 별 인박스. idempotency_key 로 중복 발송 차단(NOTIF-01)';
 COMMENT ON COLUMN notification.idempotency_key IS
-    '발송 멱등 키. 형식: {eventId|campaign:id}:{channel}:{template|NONE}:{recipient}. UNIQUE';
+    '발송 멱등 키. 형식: {siteKey}:{eventId|campaign:id}:{channel}:{template|NONE}:{recipient}. UNIQUE';
+COMMENT ON COLUMN notification.site_key IS
+    'FE 앱/사이트: PORTFOLIO, COMMERCE, FASHION, SOCIAL (NOTIF-03)';
 COMMENT ON COLUMN notification.source_event_id IS
     'Kafka DomainEvent.eventId. 캠페인 스케줄 발송이면 NULL';
 COMMENT ON COLUMN notification.recipient_user_id IS
     '논리 참조: auth.account.id (database-per-service 경계로 FK 없음)';
 COMMENT ON COLUMN notification.channel IS '발송 채널: EMAIL, WEBHOOK, IN_APP, PUSH';
 COMMENT ON COLUMN notification.category IS '알림 카테고리: TRANSACTION, MARKETING, SOCIAL, SYSTEM';
-COMMENT ON COLUMN notification.template_id IS '내부 FK → notification_template.template_id';
+COMMENT ON COLUMN notification.template_id IS
+    '내부 FK → notification_template (site_key, template_id)';
 COMMENT ON COLUMN notification.status IS 'PENDING, SENT, FAILED, DLQ, OPENED, CLICKED';
 COMMENT ON COLUMN notification.campaign_id IS
     '내부 FK → marketing_campaign.id (순환 참조로 마지막 ALTER에서 FK 추가)';
 
-CREATE INDEX idx_notification_recipient_created
-    ON notification (recipient_user_id, created_at DESC);
+CREATE INDEX idx_notification_recipient_site_created
+    ON notification (recipient_user_id, site_key, created_at DESC);
 
--- [LOW-NT-6] IN_APP 인박스: 미읽음·읽음(SENT/OPENED)만 recipient별 최신순 조회
+-- [LOW-NT-6] IN_APP 인박스: 사이트·미읽음·읽음(SENT/OPENED)만 recipient별 최신순
 CREATE INDEX idx_notification_in_app_inbox
-    ON notification (recipient_user_id, created_at DESC)
+    ON notification (recipient_user_id, site_key, created_at DESC)
     WHERE channel = 'IN_APP' AND status IN ('SENT', 'OPENED');
 
 -- 발송 워커: 재시도/대기 건 조회
@@ -206,7 +223,7 @@ CREATE INDEX idx_notification_pending_failed
     WHERE status IN ('PENDING', 'FAILED');
 
 CREATE INDEX idx_notification_template_id
-    ON notification (template_id)
+    ON notification (site_key, template_id)
     WHERE template_id IS NOT NULL;
 
 CREATE INDEX idx_notification_campaign_id
@@ -223,12 +240,13 @@ CREATE INDEX idx_notification_source_event
 --
 -- [NOTIF-02] 스케줄 멱등: Kafka 재소비 시 동일 캠페인이 중복 INSERT 되지 않도록
 --   idempotency_key UNIQUE. 형식 예:
---   "{sourceEventId}:{campaign_type}:{target_user_id}:{target_resource_id|NONE}"
+--   "{siteKey}:{sourceEventId}:{campaign_type}:{target_user_id}:{target_resource_id|NONE}"
 -- ==============================================================
 CREATE TABLE marketing_campaign (
     id                      BIGSERIAL PRIMARY KEY,
     -- [NOTIF-02] 캠페인 생성(스케줄) 멱등 키
     idempotency_key         VARCHAR(300) NOT NULL,
+    site_key                VARCHAR(30)  NOT NULL,
     -- Kafka DomainEvent.eventId (수동 스케줄이면 NULL)
     source_event_id         UUID,
     -- REPURCHASE_REMINDER, PRICE_DROP, CART_ABANDONMENT, NEW_PRODUCT, INFLUENCER_BONUS, RESTOCK_ALERT
@@ -251,9 +269,13 @@ CREATE TABLE marketing_campaign (
 
     CONSTRAINT uq_marketing_campaign_idempotency UNIQUE (idempotency_key),
     CONSTRAINT fk_marketing_campaign_template
-        FOREIGN KEY (template_id) REFERENCES notification_template (template_id),
+        FOREIGN KEY (site_key, template_id)
+        REFERENCES notification_template (site_key, template_id),
     CONSTRAINT fk_marketing_campaign_notification
         FOREIGN KEY (notification_id) REFERENCES notification (id),
+    CONSTRAINT chk_marketing_campaign_site_key CHECK (
+        site_key IN ('PORTFOLIO', 'COMMERCE', 'FASHION', 'SOCIAL')
+    ),
     CONSTRAINT chk_marketing_campaign_type CHECK (
         campaign_type IN (
             'REPURCHASE_REMINDER',
@@ -273,16 +295,19 @@ CREATE TABLE marketing_campaign (
 );
 
 COMMENT ON TABLE marketing_campaign IS
-    '마케팅 캠페인 스케줄. idempotency_key 로 중복 스케줄 차단 (NOTIF-02)';
+    '마케팅 캠페인 스케줄. site_key 별. idempotency_key 로 중복 스케줄 차단 (NOTIF-02)';
 COMMENT ON COLUMN marketing_campaign.idempotency_key IS
-    '스케줄 멱등 키. 예: {sourceEventId}:{campaign_type}:{userId}:{resourceId|NONE}';
+    '스케줄 멱등 키. 예: {siteKey}:{sourceEventId}:{campaign_type}:{userId}:{resourceId|NONE}';
+COMMENT ON COLUMN marketing_campaign.site_key IS
+    'FE 앱/사이트: PORTFOLIO, COMMERCE, FASHION, SOCIAL (NOTIF-03)';
 COMMENT ON COLUMN marketing_campaign.source_event_id IS
     'Kafka DomainEvent.eventId. 수동 생성 캠페인이면 NULL';
 COMMENT ON COLUMN marketing_campaign.campaign_type IS 'REPURCHASE_REMINDER, PRICE_DROP, CART_ABANDONMENT, NEW_PRODUCT, INFLUENCER_BONUS, RESTOCK_ALERT';
 COMMENT ON COLUMN marketing_campaign.target_user_id IS '논리 참조: auth.account.id (FK 없음)';
 COMMENT ON COLUMN marketing_campaign.target_resource_type IS '대상 리소스 종류 (commerce/fashion/social 등)';
 COMMENT ON COLUMN marketing_campaign.target_resource_id IS '논리 참조: target_resource_type 별 외부 서비스 리소스 ID (FK 없음)';
-COMMENT ON COLUMN marketing_campaign.template_id IS '내부 FK → notification_template.template_id';
+COMMENT ON COLUMN marketing_campaign.template_id IS
+    '내부 FK → notification_template (site_key, template_id)';
 COMMENT ON COLUMN marketing_campaign.status IS 'SCHEDULED, EXECUTING, SENT, CANCELLED, FAILED';
 COMMENT ON COLUMN marketing_campaign.notification_id IS '내부 FK → notification.id (캠페인 실행 결과 알림, nullable)';
 
@@ -291,8 +316,8 @@ CREATE INDEX idx_marketing_campaign_scheduled
     ON marketing_campaign (status, scheduled_at)
     WHERE status = 'SCHEDULED';
 
-CREATE INDEX idx_marketing_campaign_target_user
-    ON marketing_campaign (target_user_id, created_at DESC);
+CREATE INDEX idx_marketing_campaign_target_user_site
+    ON marketing_campaign (target_user_id, site_key, created_at DESC);
 
 CREATE INDEX idx_marketing_campaign_notification_id
     ON marketing_campaign (notification_id)
@@ -303,18 +328,22 @@ CREATE INDEX idx_marketing_campaign_source_event
     WHERE source_event_id IS NOT NULL;
 
 -- ==============================================================
--- 4. 사용자 알림 수신 설정
+-- 4. 사용자 알림 수신 설정 (사이트별)
 -- ==============================================================
 CREATE TABLE notification_preference (
     -- 논리 참조: auth.account.id
     user_id                 UUID         NOT NULL,
+    site_key                VARCHAR(30)  NOT NULL,
     channel                 VARCHAR(20)  NOT NULL,
     category                VARCHAR(30)  NOT NULL,
     enabled                 BOOLEAN      NOT NULL DEFAULT TRUE,
     quiet_hours_start       TIME,
     quiet_hours_end         TIME,
 
-    CONSTRAINT pk_notification_preference PRIMARY KEY (user_id, channel, category),
+    CONSTRAINT pk_notification_preference PRIMARY KEY (user_id, site_key, channel, category),
+    CONSTRAINT chk_notification_preference_site_key CHECK (
+        site_key IN ('PORTFOLIO', 'COMMERCE', 'FASHION', 'SOCIAL')
+    ),
     CONSTRAINT chk_notification_preference_channel CHECK (
         channel IN ('EMAIL', 'WEBHOOK', 'IN_APP', 'PUSH')
     ),
@@ -323,8 +352,11 @@ CREATE TABLE notification_preference (
     )
 );
 
-COMMENT ON TABLE notification_preference IS '사용자별 채널·카테고리 수신 동의 및 방해 금지 시간';
+COMMENT ON TABLE notification_preference IS
+    '사용자·사이트별 채널·카테고리 수신 동의 및 방해 금지 시간';
 COMMENT ON COLUMN notification_preference.user_id IS '논리 참조: auth.account.id (FK 없음)';
+COMMENT ON COLUMN notification_preference.site_key IS
+    'FE 앱/사이트: PORTFOLIO, COMMERCE, FASHION, SOCIAL (NOTIF-03)';
 COMMENT ON COLUMN notification_preference.channel IS 'EMAIL, WEBHOOK, IN_APP, PUSH';
 COMMENT ON COLUMN notification_preference.category IS 'TRANSACTION, MARKETING, SOCIAL, SYSTEM';
 COMMENT ON COLUMN notification_preference.quiet_hours_start IS '방해 금지 시작 시각 (로컬 시간 정책은 애플리케이션에서 해석)';

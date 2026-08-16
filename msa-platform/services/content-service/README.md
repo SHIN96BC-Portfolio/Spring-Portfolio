@@ -48,14 +48,16 @@ GNB, 배너, 정적 페이지와 홈 섹션 구성을 소유하는 CMS 도메인
 
 | 컬럼 | 역할 |
 |------|------|
+| `site_key` | `PORTFOLIO`, `COMMERCE`, `FASHION`, `SOCIAL` |
 | `page_key` | `HOME`, `ABOUT`, `CAREER`, `PROJECTS` |
 | `section_key` | 페이지 내 고정 슬롯 (`hero`, `project-grid` 등) |
 | `section_type` | FE 컴포넌트 (`PROJECT_GRID`, `HERO`, `MARKDOWN`, …) |
 | `draft_config_schema_version` | `draft_config` JSON 계약 버전 |
 | `published_config_schema_version` | publish 시 스냅샷 |
 
-- UNIQUE `(page_key, section_key)` — 슬롯 중복 방지  
-- UNIQUE `(page_key, display_order)` — 페이지별 순서 충돌 방지  
+- UNIQUE `(site_key, page_key, section_key, locale)` — 슬롯 중복 방지  
+- UNIQUE `(site_key, page_key, display_order, locale)` — 페이지별 순서 충돌 방지  
+
 
 Publish 시 `published_config_schema_version = draft_config_schema_version` 복사.
 

@@ -1,22 +1,36 @@
 -- ==============================================================
 -- point-service 최종 초기 스키마
 --
--- ERD: point_account, point_transaction, point_reservation, point_earning_rule
+-- ERD: point_type, point_account, point_transaction, point_reservation,
+--      point_cashout_request, point_earning_rule
 --
 -- 참고:
 --   - ERD point_outbox_events 는 공통 outbox_events 로 대체
 --   - point-service 는 Saga Participant 이므로 saga_instances 를 만들지 않음
 --   - saga_id 컬럼은 commerce-service saga_instances.saga_id 논리 참조 (FK 없음)
 --   - point BIGINT 컬럼은 최소 포인트/화폐 단위
+--   - 공용 지갑(계정 1개) + 유형별 lot (POINT-03)
 --
 -- 멱등성 설계 (DB 아키텍처 감사 POINT-01/02 반영):
 --   1) 원장 멱등: point_transaction 에 (type, source_type, source_id)
 --      부분 UNIQUE 인덱스. 이벤트 재소비/재시도 시 중복 적립·차감 차단.
 --   2) 예약 멱등: point_reservation.saga_id UNIQUE (사가당 예약 1건).
 --   3) 만료 lot: EARNED 거래 행이 적립 lot 을 겸함.
---      remaining_amount 로 잔여량을 추적하고 FIFO 소진/만료 처리.
---      별도 point_lot 테이블 대신 원장 재사용 — 포트폴리오 규모에서
---      테이블 수를 늘리지 않으면서 만료 정산이 가능한 최소 모델.
+--      remaining_amount 로 잔여량을 추적하고 소진/만료 처리.
+--   4) 출금 홀드 멱등: point_cashout_request.idempotency_key UNIQUE.
+--
+-- [POINT-03] 포인트 유형:
+--   point_type 마스터(유상/이벤트/리뷰/가입 등) + EARNED lot 에 point_type_code.
+--   is_cashable / is_refundable / spend_priority 는 유형 정책.
+--
+-- [POINT-04] 사용·예약·출금 시 lot 선택 (애플리케이션):
+--   ORDER BY expires_at ASC NULLS LAST, spend_priority ASC, lot.id ASC
+--   → 만료 임박 우선, 동률이면 무상(낮은 priority) → 유상.
+--   DB 는 정책값만 보관하고, 정렬·차감은 사용 시점에 수행.
+--
+-- [POINT-05] 출금(캐시아웃):
+--   is_cashable = TRUE lot 만 대상. point_cashout_request 로 HOLDING 구간 잠금.
+--   가용 = balance - Σ(RESERVED 예약) - Σ(HOLDING 출금).
 -- ==============================================================
 
 -- [COMMON-03] 시각 컬럼은 TIMESTAMPTZ(UTC). 앱·JDBC·PostgreSQL 세션 timezone=UTC 권장.
@@ -78,11 +92,61 @@ COMMENT ON COLUMN processed_events.consumer_group IS
 
 
 -- --------------------------------------------------------------
--- 1. point_account — 사용자 포인트 계정
+-- 0. point_type — 포인트 유형 마스터 (POINT-03)
+-- --------------------------------------------------------------
+CREATE TABLE point_type (
+    code                    VARCHAR(30)     PRIMARY KEY,
+    name                    VARCHAR(100)    NOT NULL,
+    description             VARCHAR(200),
+    -- 출금(캐시아웃) 가능 여부
+    is_cashable             BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- 주문 취소·환불 시 해당 유형 적립분 환급(복구) 가능 여부
+    is_refundable           BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- 사용 시 동률(만료일 동일·무기한) 내 우선순위. 작을수록 먼저 사용 (무상 < 유상)
+    spend_priority          INT             NOT NULL DEFAULT 100,
+    -- 적립 시 기본 만료일수. NULL 이면 기본 무기한 (개별 lot expires_at 로 override)
+    default_expire_days     INT,
+    active                  BOOLEAN         NOT NULL DEFAULT TRUE,
+    created_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_point_type_spend_priority CHECK (spend_priority >= 0),
+    CONSTRAINT chk_point_type_default_expire_days CHECK (
+        default_expire_days IS NULL OR default_expire_days > 0
+    )
+);
+
+COMMENT ON TABLE point_type IS
+    '포인트 유형 마스터. 유상/이벤트/리뷰/가입 등 정책 (POINT-03)';
+COMMENT ON COLUMN point_type.code IS
+    '유형 코드. 예: PAID, EVENT, REVIEW, SIGNUP, INFLUENCER';
+COMMENT ON COLUMN point_type.is_cashable IS
+    'TRUE 이면 캐시아웃 대상 lot. 출금 홀드는 이 유형만 선택 (POINT-05)';
+COMMENT ON COLUMN point_type.is_refundable IS
+    'TRUE 이면 주문 취소 시 해당 적립 lot 환급(복구) 가능';
+COMMENT ON COLUMN point_type.spend_priority IS
+    '사용 시 정렬 2차 키. 1차는 expires_at. 작을수록 우선 (POINT-04)';
+COMMENT ON COLUMN point_type.default_expire_days IS
+    '적립 시 기본 만료 일수. NULL=무기한 기본. lot.expires_at 이 최종';
+
+CREATE INDEX idx_point_type_active_priority
+    ON point_type (active, spend_priority);
+
+-- 시드: 실서비스에서 흔한 유형 (정책은 운영 중 조정 가능)
+INSERT INTO point_type (code, name, description, is_cashable, is_refundable, spend_priority, default_expire_days) VALUES
+    ('SIGNUP',      '가입 보너스',     '회원가입 지급. 무상·비출금',           FALSE, FALSE, 10, 365),
+    ('EVENT',       '이벤트',          '프로모션·이벤트 무상 포인트',         FALSE, FALSE, 20, 90),
+    ('REVIEW',      '리뷰/활동',       '리뷰·OOTD 등 활동 보상',             FALSE, FALSE, 20, 180),
+    ('INFLUENCER',  '인플루언서',      '인플루언서·크리에이터 보상',         FALSE, FALSE, 25, 365),
+    ('PAID',        '유상/구매적립',   '결제 적립. 출금·주문취소 환급 가능', TRUE,  TRUE,  100, 1825);
+
+
+-- --------------------------------------------------------------
+-- 1. point_account — 사용자 포인트 계정 (공용 지갑 1개)
 --
 -- [AUTH-04] status:
 --   AccountRegistered 로 계정 생성 시 ACTIVE.
---   AccountSuspended 소비 시 SUSPENDED → 적립/사용/예약 API 거부.
+--   AccountSuspended 소비 시 SUSPENDED → 적립/사용/예약/출금 API 거부.
 --   잔액은 보존하고 활동만 막는다 (정지 해제 시 재개 가능하도록).
 -- --------------------------------------------------------------
 CREATE TABLE point_account (
@@ -94,8 +158,8 @@ CREATE TABLE point_account (
     version         INT             NOT NULL DEFAULT 0, -- Optimistic lock
     tier            VARCHAR(20)     NOT NULL DEFAULT 'BRONZE',
     status          VARCHAR(20)     NOT NULL DEFAULT 'ACTIVE',
-    created_at      TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT uq_point_account_user UNIQUE (user_id),
     CONSTRAINT chk_point_account_balance CHECK (balance >= 0),
@@ -110,11 +174,11 @@ CREATE TABLE point_account (
 );
 
 COMMENT ON TABLE point_account IS
-    '사용자별 포인트 계정 (잔액/누적/티어). status 는 auth 정지 이벤트 미러(AUTH-04)';
+    '사용자별 공용 포인트 계정 (총잔액/누적/티어). 유형별 잔여는 EARNED lot 합산';
 COMMENT ON COLUMN point_account.user_id IS
     'auth.account.id 논리 참조. DB-per-service 경계로 FK 없음';
 COMMENT ON COLUMN point_account.balance IS
-    '현재 사용 가능 잔액. 최소 포인트 단위 BIGINT';
+    '총 잔액(유형 합). 가용=balance-활성예약-HOLDING출금 (앱 계산, POINT-05)';
 COMMENT ON COLUMN point_account.total_earned IS
     '누적 적립액. 최소 포인트 단위 BIGINT';
 COMMENT ON COLUMN point_account.total_spent IS
@@ -122,7 +186,7 @@ COMMENT ON COLUMN point_account.total_spent IS
 COMMENT ON COLUMN point_account.version IS '낙관적 락 버전';
 COMMENT ON COLUMN point_account.tier IS '회원 티어: BRONZE, SILVER, GOLD, PLATINUM';
 COMMENT ON COLUMN point_account.status IS
-    'ACTIVE | SUSPENDED | CLOSED. SUSPENDED 시 적립·사용·예약 거부, 잔액 보존';
+    'ACTIVE | SUSPENDED | CLOSED. SUSPENDED 시 적립·사용·예약·출금 거부, 잔액 보존';
 
 CREATE INDEX idx_point_account_tier
     ON point_account (tier);
@@ -135,64 +199,64 @@ CREATE INDEX idx_point_account_status
 -- --------------------------------------------------------------
 -- 2. point_transaction — 포인트 변경 원장 (Event Sourcing 스타일)
 --
--- 멱등성:
---   같은 출처(source_type + source_id)에 대해 같은 type 의 거래는 1건만 허용.
---   Kafka 재소비·HTTP 재시도가 겹쳐도 DB 가 중복 적립/차감을 차단한다.
---   (processed_events 는 컨슈머 단 멱등이고, 이 UNIQUE 는 원장 단 멱등 — 둘은 별개 방어선)
---
--- 만료 lot 모델:
---   EARNED 행 하나가 "적립 lot" 역할을 한다.
---   remaining_amount 는 해당 lot 에서 아직 소진되지 않은 잔여량이며,
---   SPENT/EXPIRED 처리 시 FIFO(만료 임박 순)로 lot 의 remaining_amount 를 차감한다.
---   remaining_amount 는 이 테이블에서 유일하게 UPDATE 되는 컬럼이다
---   (나머지는 append-only 유지).
+-- EARNED 행 = 적립 lot. point_type_code 필수.
+-- 사용/예약/출금 lot 선택: POINT-04 (만료 임박 → spend_priority).
 -- --------------------------------------------------------------
 CREATE TABLE point_transaction (
     id                  BIGSERIAL       PRIMARY KEY,
     account_id          BIGINT          NOT NULL,
     type                VARCHAR(20)     NOT NULL,   -- EARNED, SPENT, RESERVED, RELEASED, EXPIRED, ADJUSTED
+    -- EARNED 필수. SPENT/EXPIRED 등도 감사·유형별 집계용으로 권장
+    point_type_code     VARCHAR(30),
     amount              BIGINT          NOT NULL,   -- 항상 양수, 방향은 type 으로 구분
     remaining_amount    BIGINT,                     -- EARNED lot 잔여량 (EARNED 만 사용, 그 외 NULL)
     balance_after       BIGINT          NOT NULL,
-    source_type         VARCHAR(30)     NOT NULL,   -- ORDER, SIGNUP_BONUS, OOTD_LIKE, INFLUENCER_BONUS
+    source_type         VARCHAR(30)     NOT NULL,   -- ORDER, SIGNUP_BONUS, OOTD_LIKE, INFLUENCER_BONUS, CASHOUT
     source_id           VARCHAR(100),
     saga_id             UUID,                       -- commerce saga 논리 참조
     description         VARCHAR(200),
-    expires_at          TIMESTAMPTZ,                  -- 적립 포인트 만료 시각 (EARNED lot 만)
-    created_at          TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    expires_at          TIMESTAMPTZ,                -- 적립 포인트 만료 시각 (EARNED lot 만)
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT fk_point_transaction_account
         FOREIGN KEY (account_id) REFERENCES point_account (id),
+    CONSTRAINT fk_point_transaction_point_type
+        FOREIGN KEY (point_type_code) REFERENCES point_type (code),
     CONSTRAINT chk_point_transaction_amount CHECK (amount > 0),
     CONSTRAINT chk_point_transaction_balance_after CHECK (balance_after >= 0),
     CONSTRAINT chk_point_transaction_type CHECK (
         type IN ('EARNED', 'SPENT', 'RESERVED', 'RELEASED', 'EXPIRED', 'ADJUSTED')
     ),
-    -- lot 모델 불변식: EARNED 는 0 <= remaining <= amount, 그 외 type 은 remaining 없음
+    -- lot: EARNED 는 유형 필수 + remaining 범위
+    CONSTRAINT chk_point_transaction_earned_type CHECK (
+        (type = 'EARNED' AND point_type_code IS NOT NULL)
+        OR (type <> 'EARNED')
+    ),
     CONSTRAINT chk_point_transaction_remaining CHECK (
         (type = 'EARNED' AND remaining_amount IS NOT NULL
              AND remaining_amount >= 0 AND remaining_amount <= amount)
         OR (type <> 'EARNED' AND remaining_amount IS NULL)
     ),
-    -- 만료는 EARNED lot 에만 의미가 있음
     CONSTRAINT chk_point_transaction_expires_scope CHECK (
         expires_at IS NULL OR type = 'EARNED'
     )
 );
 
 COMMENT ON TABLE point_transaction IS
-    '포인트 변경 원장. 모든 잔액 변동을 기록. EARNED 행은 적립 lot 을 겸하며 remaining_amount 만 UPDATE 허용';
+    '포인트 변경 원장. EARNED 행은 유형별 적립 lot (POINT-03). remaining_amount 만 UPDATE 허용';
 COMMENT ON COLUMN point_transaction.account_id IS '대상 포인트 계정 (point_account.id)';
 COMMENT ON COLUMN point_transaction.type IS
     '변동 유형: EARNED, SPENT, RESERVED, RELEASED, EXPIRED, ADJUSTED';
+COMMENT ON COLUMN point_transaction.point_type_code IS
+    '포인트 유형. EARNED 필수. FK → point_type.code';
 COMMENT ON COLUMN point_transaction.amount IS
     '변동량(항상 양수). 최소 포인트 단위 BIGINT. 방향은 type 으로 구분';
 COMMENT ON COLUMN point_transaction.remaining_amount IS
-    'EARNED lot 잔여량. 소진/만료 시 FIFO 로 차감. EARNED 외 type 은 NULL';
+    'EARNED lot 잔여량. 소진/만료/출금홀드 시 차감. EARNED 외 type 은 NULL';
 COMMENT ON COLUMN point_transaction.balance_after IS
-    '이 거래 반영 후 잔액. 최소 포인트 단위 BIGINT';
+    '이 거래 반영 후 총잔액. 최소 포인트 단위 BIGINT';
 COMMENT ON COLUMN point_transaction.source_type IS
-    '발생 출처 유형: ORDER, SIGNUP_BONUS, OOTD_LIKE, INFLUENCER_BONUS 등';
+    '발생 출처: ORDER, SIGNUP_BONUS, OOTD_LIKE, INFLUENCER_BONUS, CASHOUT 등';
 COMMENT ON COLUMN point_transaction.source_id IS
     '출처 리소스 ID 논리 참조 (source_type 별). FK 없음';
 COMMENT ON COLUMN point_transaction.saga_id IS
@@ -202,11 +266,6 @@ COMMENT ON COLUMN point_transaction.expires_at IS '적립 포인트 만료 시�
 CREATE INDEX idx_point_transaction_account_created
     ON point_transaction (account_id, created_at DESC);
 
--- 원장 단 멱등 키.
--- 같은 출처 이벤트가 재처리되어도 (type, source_type, source_id) 조합으로
--- INSERT 가 UNIQUE 위반이 되어 중복 적립/차감이 물리적으로 불가능하다.
--- source_id 가 없는 수동 조정(ADJUSTED 등)은 멱등 대상이 아니므로 부분 인덱스로 제외.
--- 예: 주문 적립(EARNED/ORDER/#123)과 주문 취소 차감(SPENT/ORDER/#123)은 공존 가능.
 CREATE UNIQUE INDEX uq_point_transaction_idempotency
     ON point_transaction (type, source_type, source_id)
     WHERE source_id IS NOT NULL;
@@ -215,15 +274,20 @@ CREATE INDEX idx_point_transaction_saga
     ON point_transaction (saga_id)
     WHERE saga_id IS NOT NULL;
 
--- 만료 스윕: 잔여량이 남아 있는 EARNED lot 만 대상으로 만료 임박 순 조회.
--- (소진 완료 lot 은 remaining_amount = 0 이라 인덱스에서 제외됨)
+-- 만료 스윕
 CREATE INDEX idx_point_transaction_expiring_lots
     ON point_transaction (expires_at)
     WHERE type = 'EARNED' AND expires_at IS NOT NULL AND remaining_amount > 0;
 
+-- 사용/예약 lot 후보: 계정·유형별 잔여 lot
+CREATE INDEX idx_point_transaction_spendable_lots
+    ON point_transaction (account_id, point_type_code, expires_at, id)
+    WHERE type = 'EARNED' AND remaining_amount > 0;
+
 
 -- --------------------------------------------------------------
 -- 3. point_reservation — 사가 임시 포인트 예약
+--    lot 선택은 POINT-04 와 동일(사용 시점에 정렬). 금액만 잠금.
 -- --------------------------------------------------------------
 CREATE TABLE point_reservation (
     id              BIGSERIAL       PRIMARY KEY,
@@ -231,9 +295,9 @@ CREATE TABLE point_reservation (
     amount          BIGINT          NOT NULL,
     saga_id         UUID            NOT NULL,           -- commerce saga 논리 참조
     status          VARCHAR(20)     NOT NULL,           -- RESERVED, CONFIRMED, RELEASED, EXPIRED
-    expires_at      TIMESTAMPTZ       NOT NULL,
-    created_at      TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    expires_at      TIMESTAMPTZ     NOT NULL,
+    created_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT uq_point_reservation_saga UNIQUE (saga_id),
     CONSTRAINT fk_point_reservation_account
@@ -245,7 +309,7 @@ CREATE TABLE point_reservation (
 );
 
 COMMENT ON TABLE point_reservation IS
-    '주문 사가 진행 중 임시 포인트 예약 (Participant 보상 가능)';
+    '주문 사가 진행 중 임시 포인트 예약 (Participant 보상 가능). lot 선택은 POINT-04';
 COMMENT ON COLUMN point_reservation.account_id IS '예약 대상 계정 (point_account.id)';
 COMMENT ON COLUMN point_reservation.amount IS
     '예약 금액. 최소 포인트 단위 BIGINT';
@@ -255,7 +319,6 @@ COMMENT ON COLUMN point_reservation.status IS
     '예약 상태: RESERVED, CONFIRMED, RELEASED, EXPIRED';
 COMMENT ON COLUMN point_reservation.expires_at IS '예약 만료 시각';
 
--- 만료 스윕 대상
 CREATE INDEX idx_point_reservation_expires_reserved
     ON point_reservation (expires_at)
     WHERE status = 'RESERVED';
@@ -265,12 +328,61 @@ CREATE INDEX idx_point_reservation_account_status
 
 
 -- --------------------------------------------------------------
--- 4. point_earning_rule — 적립 규칙
+-- 4. point_cashout_request — 출금(캐시아웃) 홀드 (POINT-05)
+--    is_cashable lot 만 대상. HOLDING 동안 가용 잔액에서 제외.
+-- --------------------------------------------------------------
+CREATE TABLE point_cashout_request (
+    id                  BIGSERIAL       PRIMARY KEY,
+    account_id          BIGINT          NOT NULL,
+    amount              BIGINT          NOT NULL,
+    -- REQUESTED → HOLDING → PAID | CANCELLED | FAILED
+    status              VARCHAR(20)     NOT NULL,
+    idempotency_key     VARCHAR(200)    NOT NULL,
+    hold_expires_at     TIMESTAMPTZ,
+    paid_at             TIMESTAMPTZ,
+    failure_reason      VARCHAR(500),
+    created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_point_cashout_idempotency UNIQUE (idempotency_key),
+    CONSTRAINT fk_point_cashout_account
+        FOREIGN KEY (account_id) REFERENCES point_account (id),
+    CONSTRAINT chk_point_cashout_amount CHECK (amount > 0),
+    CONSTRAINT chk_point_cashout_status CHECK (
+        status IN ('REQUESTED', 'HOLDING', 'PAID', 'CANCELLED', 'FAILED')
+    ),
+    CONSTRAINT chk_point_cashout_paid_at CHECK (
+        (status = 'PAID' AND paid_at IS NOT NULL)
+        OR (status <> 'PAID' AND paid_at IS NULL)
+    )
+);
+
+COMMENT ON TABLE point_cashout_request IS
+    '캐시아웃 요청·홀드. is_cashable lot 만 사용 (POINT-05)';
+COMMENT ON COLUMN point_cashout_request.account_id IS '출금 대상 계정';
+COMMENT ON COLUMN point_cashout_request.amount IS '출금 요청 금액. 최소 포인트 단위';
+COMMENT ON COLUMN point_cashout_request.status IS
+    'REQUESTED, HOLDING, PAID, CANCELLED, FAILED. HOLDING 시 가용에서 차감';
+COMMENT ON COLUMN point_cashout_request.idempotency_key IS '출금 요청 멱등 키';
+COMMENT ON COLUMN point_cashout_request.hold_expires_at IS '홀드 만료. 초과 시 앱이 CANCELLED 처리';
+
+CREATE INDEX idx_point_cashout_account_status
+    ON point_cashout_request (account_id, status);
+
+CREATE INDEX idx_point_cashout_holding_expires
+    ON point_cashout_request (hold_expires_at)
+    WHERE status = 'HOLDING';
+
+
+-- --------------------------------------------------------------
+-- 5. point_earning_rule — 적립 규칙 (지급 유형 지정)
 -- --------------------------------------------------------------
 CREATE TABLE point_earning_rule (
     id              BIGSERIAL       PRIMARY KEY,
     rule_code       VARCHAR(50)     NOT NULL,           -- ORDER_1_PERCENT, SIGNUP_BONUS
     description     VARCHAR(200),
+    -- 이 규칙으로 적립 시 부여할 포인트 유형
+    point_type_code VARCHAR(30)     NOT NULL,
     earn_rate       DECIMAL(5, 4),                      -- 0.01 = 1%
     fixed_amount    BIGINT,
     max_per_day     BIGINT,
@@ -279,6 +391,8 @@ CREATE TABLE point_earning_rule (
     ends_at         TIMESTAMPTZ,
 
     CONSTRAINT uq_point_earning_rule_code UNIQUE (rule_code),
+    CONSTRAINT fk_point_earning_rule_point_type
+        FOREIGN KEY (point_type_code) REFERENCES point_type (code),
     CONSTRAINT chk_point_earning_rule_earn_rate CHECK (
         earn_rate IS NULL OR (earn_rate >= 0 AND earn_rate <= 1)
     ),
@@ -296,9 +410,12 @@ CREATE TABLE point_earning_rule (
     )
 );
 
-COMMENT ON TABLE point_earning_rule IS '포인트 적립 규칙 (비율/고정액/일일 한도)';
+COMMENT ON TABLE point_earning_rule IS
+    '포인트 적립 규칙. point_type_code 로 지급 유형 지정 (POINT-03)';
 COMMENT ON COLUMN point_earning_rule.rule_code IS
     '규칙 코드. 예: ORDER_1_PERCENT, SIGNUP_BONUS';
+COMMENT ON COLUMN point_earning_rule.point_type_code IS
+    '적립 lot 에 부여할 유형. FK → point_type.code';
 COMMENT ON COLUMN point_earning_rule.earn_rate IS
     '적립 비율. 0.01 = 1%. NULL이면 fixed_amount 사용';
 COMMENT ON COLUMN point_earning_rule.fixed_amount IS
@@ -311,3 +428,7 @@ COMMENT ON COLUMN point_earning_rule.ends_at IS '규칙 적용 종료';
 
 CREATE INDEX idx_point_earning_rule_active_period
     ON point_earning_rule (active, starts_at, ends_at);
+
+CREATE INDEX idx_point_earning_rule_point_type
+    ON point_earning_rule (point_type_code)
+    WHERE active;
